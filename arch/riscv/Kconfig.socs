@@ -1,5 +1,11 @@
 menu "SoC selection"
 
+config SOC_BOUFFALOLAB
+	bool "Bouffalolab SoCs"
+	select SIFIVE_PLIC
+	help
+	  This enables support for Bouffalolab SoC platforms.
+
 config ARCH_MICROCHIP_POLARFIRE
 	def_bool SOC_MICROCHIP_POLARFIRE
 
