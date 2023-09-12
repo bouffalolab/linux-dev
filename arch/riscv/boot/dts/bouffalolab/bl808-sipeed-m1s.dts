@@ -28,6 +28,16 @@
 		device_type = "memory";
 		reg = <0x50000000 0x04000000>;
 	};
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		m0_psram_reserved: m0_psram@53E00000 {
+			reg = <0x53E00000 0x200000>;
+			status = "okay";
+		};
+	};
 
 	xip_flash@58500000 {
 		compatible = "mtd-rom";
@@ -69,6 +79,8 @@
 	status = "okay";
 };
 
+/*
 &ipclic {
 	status = "okay";
 };
+*/
