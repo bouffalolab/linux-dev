@@ -32,8 +32,8 @@
 		#size-cells = <1>;
 		ranges;
 
-		m0_psram_reserved: m0_psram@53E00000 {
-			reg = <0x53E00000 0x200000>;
+		m0_psram_reserved: m0_psram@53F00000 {
+			reg = <0x53F00000 0x100000>;
 			status = "okay";
 		};
 	};
