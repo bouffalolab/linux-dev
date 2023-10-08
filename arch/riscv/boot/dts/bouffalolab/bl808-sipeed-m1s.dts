@@ -39,12 +39,9 @@
 		};
 	};
 
-	xip_flash@58500000 {
-		compatible = "mtd-rom";
-		reg = <0x58500000 0x400000>;
-		linux,mtd-name = "xip-flash.0";
-		erase-size = <0x10000>;
-		bank-width = <4>;
+	flash@2000b000 {
+		compatible = "bflb,bl808-sflash";
+		reg = <0x2000b000 0x1000 0x40001000 0x1000>;
 		#address-cells = <1>;
 		#size-cells = <1>;
 	};
