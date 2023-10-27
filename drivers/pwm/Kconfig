@@ -537,6 +537,17 @@ config PWM_SIFIVE
 	  To compile this driver as a module, choose M here: the module
 	  will be called pwm-sifive.
 
+config PWM_BFLB
+	tristate "Bouffalo Lab PWM support"
+	depends on OF
+	depends on COMMON_CLK && HAS_IOMEM
+	depends on RISCV || COMPILE_TEST
+	help
+	  Generic PWM framework driver for Bouffalo Lab SoCs, say bl808.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called pwm-bflb.
+
 config PWM_SL28CPLD
 	tristate "Kontron sl28cpld PWM support"
 	depends on MFD_SL28CPLD || COMPILE_TEST
