@@ -113,6 +113,22 @@
 			status = "disabled";
 		};
 
+		pwm0: pwm@2000a440 {
+			compatible = "bflb,bl808-pwm";
+			reg = <0x2000a440 0x40>;
+			clocks = <&xtal>;
+			#pwm-cells = <3>;
+			status = "disabled";
+		};
+
+		pwm1: pwm@2000a480 {
+			compatible = "bflb,bl808-pwm";
+			reg = <0x2000a480 0x40>;
+			clocks = <&xtal>;
+			#pwm-cells = <3>;
+			status = "disabled";
+		};
+
 		/*
 		ipclic: mailbox@30005000 {
 			compatible = "bflb,bl808-ipc";
