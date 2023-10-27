@@ -48,11 +48,26 @@
 
 	leds {
         compatible = "gpio-leds";
+		status = "disabled";
 
         led {
             gpios = <&pinctrl 8 GPIO_ACTIVE_LOW>;
         };
     };
+
+	pwm-leds {
+		compatible = "pwm-leds";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pwm_led>;
+		status = "okay";
+
+		led-0 {
+			pwms = <&pwm0 0 500000 0>;
+			active-low;
+			max-brightness = <255>;
+			label = "pwm_led0";
+		};
+	};
 };
 
 &pinctrl {
@@ -61,6 +76,11 @@
 	led {
 		pins = "GPIO8";
 		function = "gpio";
+	};
+
+	pwm_led: pwm_led {
+		pins = "GPIO8";
+		function = "pwm0";
 	};
 };
 
