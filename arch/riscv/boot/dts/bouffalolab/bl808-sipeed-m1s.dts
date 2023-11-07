@@ -8,13 +8,14 @@
 #include "bl808.dtsi"
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/leds/common.h>
+#include <dt-bindings/pinctrl/pinctrl-bflb.h>
 
 / {
 	model = "Sipeed M1s";
 	compatible = "sipeed,m1s", "bflb,bl808";
 
 	aliases {
-		serial0 = &uart0;
+		serial0 = &mm_uart;
 	};
 
 	chosen {
@@ -58,7 +59,7 @@
 	pwm-leds {
 		compatible = "pwm-leds";
 		pinctrl-names = "default";
-		pinctrl-0 = <&pwm_led>;
+		pinctrl-0 = <&pwm_led_pins>;
 		status = "okay";
 
 		led-0 {
@@ -73,14 +74,15 @@
 &pinctrl {
 	status = "okay";
 
-	led {
-		pins = "GPIO8";
-		function = "gpio";
+	pwm_led_pins: pwm0-grp0 {
+		bflb,pin-function = <BFLB_PINMUX_FUNC_PWM0>;
+		bflb,pins = <0 8 &pin_cfg_default>;
 	};
 
-	pwm_led: pwm_led {
-		pins = "GPIO8";
-		function = "pwm0";
+	mm_uart_pins: mm-uart-grp0 {
+		bflb,pin-function = <BFLB_PINMUX_FUNC_MM_UART>;
+		bflb,pins = <0 16 &pin_cfg_default>,
+					<0 17 &pin_cfg_default>;
 	};
 };
 
@@ -88,8 +90,10 @@
 	status = "okay";
 };
 
-&uart0 {
+&mm_uart {
 	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&mm_uart_pins>;
 };
 
 &sdhci0 {

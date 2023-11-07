@@ -1,0 +1,46 @@
+Bouffalo Lab pinctrl driver.
+
+driver compatible name: bflb,bl808-pinctrl.
+
+device tree properties:
+bflb,pin-function: ref include/dt-bindings/pinctrl/pinctrl-bflb.h
+bflb,pins: format <bank_idx pin_number config_phandle>,
+	where bank_idx is always 0 at present,
+	pin_number is the pin offset,
+	config_phandle is a phandle to node with one or multiple standard or
+	hardware specific configurations.
+
+For example:
+pinctrl: pinctrl@0 {
+	compatible = "bflb,bl808-pinctrl";
+	status = "okay";
+	...
+
+	pin_cfg_default: pin-cfg-default {
+		bias-pull-pin-default;
+		output-enable;
+		input-enable;
+	};
+
+	mm_uart_pins: mm-uart-grp0 {
+		bflb,pins = <0 16 &pin_cfg_default>,
+					<0 17 &pin_cfg_default>;
+		bflb,pin-function = <BFLB_PINMUX_FUNC_MM_UART>;
+	};
+
+	spi_foo_pins: mm-spi-grp0 {
+		bflb,pins = <0 20 &pin_cfg_default>,
+					<0 21 &pin_cfg_default>,
+					<0 22 &pin_cfg_default>,
+					<0 23 &pin_cfg_default>;
+		bflb,pin-function = <BFLB_PINMUX_FUNC_MM_SPI>;
+	};
+
+	spi_bar_pins: mm-spi-grp1 {
+		bflb,pins = <0 20 &pin_cfg_default>,
+					<0 21 &pin_cfg_default>,
+					<0 22 &pin_cfg_default>,
+					<0 23 &pin_cfg_default>;
+		bflb,pin-function = <BFLB_PINMUX_FUNC_MM_SPI>;
+	};
+};

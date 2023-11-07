@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: (GPL-2.0+ or MIT)
 /*
- * Copyright (C) 2022 Jisheng Zhang <jszhang@kernel.org>
+ * Copyright (C) 2023 Bouffalo Lab
  */
 
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/mailbox/bflb-ipc.h>
+#include <dt-bindings/pinctrl/pinctrl-bflb.h>
 
 / {
 	compatible = "bflb,bl808";
@@ -61,25 +62,86 @@
 		#size-cells = <1>;
 
 		pinctrl: pinctrl@0x200008C4 {
-			compatible = "bflb,pinctrl";
-			//Last register is for gpio_cfg141 at 0x20000af8
+			compatible = "bflb,bl808-pinctrl";
 			reg = <0x200008C4 0x1000>;
 			//clocks = <&gpio_clk>;
+			status = "disabled";
 
 			gpio-controller;
 			#gpio-cells = <2>;
 			gpio-ranges = <&pinctrl 0 0 46>;
-			bflb,npins = <46>;
-
-			status = "disabled";
 
 			interrupt-controller;
 			#interrupt-cells = <2>;
 			interrupts-extended = <&m0ic 44>;
 
-			sdh_pins: sdh-pins {
-				pins = "GPIO0", "GPIO1", "GPIO2", "GPIO3", "GPIO4", "GPIO5";
-				function = "sdh";
+			/*
+			 * developers should define their own pin config nodes with
+			 * multiple properties if the requirements are not met using
+			 * the following basic ones.
+			 */
+			pin_cfg_default: pin-cfg-default {
+				bias-pull-pin-default;
+			};
+
+			pin_cfg_pullup: pin-cfg-pullup {
+				bias-pull-up;
+			};
+
+			pin_cfg_pulldown: pin-cfg-pulldown {
+				bias-pull-down;
+			};
+
+			pin_cfg_input_enable: pin-cfg-input-enable {
+				input-enable;
+			};
+
+			pin_cfg_output_enable: pin-cfg-output-enable {
+				output-enable;
+			};
+
+			pin_cfg_output_high: pin-cfg-output-high {
+				output-high;
+			};
+
+			pin_cfg_output_low: pin-cfg-output-low {
+				output-low;
+			};
+
+			pin_cfg_strength_0: pin-cfg-strength-0 {
+				drive-strength = <0>;
+			};
+
+			pin_cfg_strength_1: pin-cfg-strength-1 {
+				drive-strength = <1>;
+			};
+
+			pin_cfg_strength_2: pin-cfg-strength-2 {
+				drive-strength = <2>;
+			};
+
+			pin_cfg_strength_3: pin-cfg-strength-3 {
+				drive-strength = <3>;
+			};
+
+			sdh_pins: sdh-grp0 {
+				bflb,pin-function = <BFLB_PINMUX_FUNC_SDH>;
+				bflb,pins = <0 0 &pin_cfg_strength_2>,
+							<0 1 &pin_cfg_strength_2>,
+							<0 2 &pin_cfg_strength_2>,
+							<0 3 &pin_cfg_strength_2>,
+							<0 4 &pin_cfg_strength_2>,
+							<0 5 &pin_cfg_strength_2>;
+			};
+
+			qspi_flash_pins: qspi-flash-grp0 {
+				bflb,pin-function = <BFLB_PINMUX_FUNC_QSPI_FLASH>;
+				bflb,pins = <0 34 &pin_cfg_default>,
+							<0 35 &pin_cfg_default>,
+							<0 36 &pin_cfg_default>,
+							<0 37 &pin_cfg_default>,
+							<0 38 &pin_cfg_default>,
+							<0 39 &pin_cfg_default>;
 			};
 		};
 
@@ -89,7 +151,7 @@
 			status = "disabled";
 		};
 
-		uart0: serial@30002000 {
+		mm_uart: serial@30002000 {
 			compatible = "bflb,bl808-uart";
 			reg = <0x30002000 0x1000>;
 			interrupts = <20 IRQ_TYPE_LEVEL_HIGH>;
@@ -111,6 +173,8 @@
 			interrupts-extended = <&m0ic 17>;
 			clocks = <&sdh>;
 			status = "disabled";
+			pinctrl-names = "default";
+			pinctrl-0 = <&sdh_pins>;
 		};
 
 		pwm0: pwm@2000a440 {

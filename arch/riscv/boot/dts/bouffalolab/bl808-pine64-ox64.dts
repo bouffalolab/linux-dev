@@ -12,7 +12,7 @@
 	compatible = "pine64,ox64", "bflb,bl808";
 
 	aliases {
-		serial0 = &uart0;
+		serial0 = &mm_uart;
 		serial1 = &uart1;
 	};
 
@@ -54,7 +54,7 @@
 	status = "okay";
 };
 
-&uart0 {
+&mm_uart {
 	status = "okay";
 };
 
