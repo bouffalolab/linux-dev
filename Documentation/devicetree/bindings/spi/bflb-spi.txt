@@ -1,0 +1,29 @@
+Bouffalo Lab SPI controller
+
+This binding applies to the SPI controller.
+
+Required properties:
+- compatible: Should be "bflb,bl808-spi".
+- reg: Should contain register location and length.
+- interrupts: Should contain interrupt.
+- clocks: The clock feeding the SPI controller.
+- syscon: The phandle of global syscon node.
+
+Optional:
+- bflb,fifo-depth: TX/RX FIFO depth.
+- bflb,max-bits-per-word: max bits per word.
+
+Example:
+
+spi1: spi@30008000 {
+			compatible = "bflb,bl808-spi";
+			reg = <0x30008000 0x1000>;
+			interrupts-extended = <&plic 23 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&mm_muxpll_160m>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			syscon = <&sys_ctrl>;
+			bflb,fifo-depth = <32>;
+			bflb,max-bits-per-word = <32>;
+			status = "okay";
+		};

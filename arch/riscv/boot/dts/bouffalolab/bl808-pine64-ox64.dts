@@ -6,6 +6,9 @@
 /dts-v1/;
 
 #include "bl808.dtsi"
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/leds/common.h>
+#include <dt-bindings/pinctrl/pinctrl-bflb.h>
 
 / {
 	model = "Pine64 Ox64";
@@ -48,6 +51,19 @@
 
 &pinctrl {
 	status = "okay";
+
+	mm_uart_pins: mm-uart-grp0 {
+		bflb,pin-function = <BFLB_PINMUX_FUNC_MM_UART>;
+		bflb,pins = <0 16 &pin_cfg_default>,
+					<0 17 &pin_cfg_default>;
+	};
+
+	spidev_pins: spidev-pins {
+		bflb,pin-function = <BFLB_PINMUX_FUNC_MM_SPI>;
+		bflb,pins = <0 23 &pin_cfg_default>, // sck
+					<0 21 &pin_cfg_default>, // mosi
+					<0 22 &pin_cfg_input_enable>; // miso
+	};
 };
 
 &seceng {
@@ -56,6 +72,8 @@
 
 &mm_uart {
 	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&mm_uart_pins>;
 };
 
 &uart1 {
@@ -74,8 +92,16 @@
 	status = "okay";
 };
 
-/*
-&ipclic {
+&spi1 {
 	status = "okay";
+	num-cs = <1>;
+
+	cs-gpios = <&pinctrl 12 GPIO_ACTIVE_LOW>;
+	spidev@0 {
+		compatible = "lwn,bk4";
+		reg = <0>;
+		status = "okay";
+		pinctrl-names = "default";
+		pinctrl-0 = <&spidev_pins>;
+	};
 };
-*/
