@@ -61,6 +61,13 @@
 		#address-cells = <1>;
 		#size-cells = <1>;
 
+		syscon: syscon@0x20000000 {
+			compatible = "syscon", "simple-mfd";
+			reg = <0x20000000 0x1000>;
+			status = "okay";
+			reg-io-width = <4>;
+		};
+
 		pinctrl: pinctrl@0x200008C4 {
 			compatible = "bflb,bl808-pinctrl";
 			reg = <0x200008C4 0x1000>;
