@@ -907,6 +907,11 @@ config SPI_SIFIVE
 	help
 	  This exposes the SPI controller IP from SiFive.
 
+config SPI_BFLB
+	tristate "Bouffalo Lab SPI controller"
+	help
+	  This exposes the SPI controller IP from Bouffalo Lab
+
 config SPI_SLAVE_MT27XX
 	tristate "MediaTek SPI slave device"
 	depends on ARCH_MEDIATEK || COMPILE_TEST

@@ -84,6 +84,13 @@
 		bflb,pins = <0 16 &pin_cfg_default>,
 					<0 17 &pin_cfg_default>;
 	};
+
+	spidev_pins: spidev-pins {
+		bflb,pin-function = <BFLB_PINMUX_FUNC_MM_SPI>;
+		bflb,pins = <0 23 &pin_cfg_default>, // sck
+					<0 21 &pin_cfg_default>, // mosi
+					<0 22 &pin_cfg_input_enable>; // miso
+	};
 };
 
 &seceng {
@@ -108,8 +115,16 @@
 	status = "okay";
 };
 
-/*
-&ipclic {
+&spi1 {
 	status = "okay";
+	num-cs = <1>;
+
+	cs-gpios = <&pinctrl 12 GPIO_ACTIVE_LOW>;
+	spidev@0 {
+		compatible = "lwn,bk4";
+		reg = <0>;
+		status = "okay";
+		pinctrl-names = "default";
+		pinctrl-0 = <&spidev_pins>;
+	};
 };
-*/
