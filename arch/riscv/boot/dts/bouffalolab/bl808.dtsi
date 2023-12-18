@@ -75,6 +75,13 @@
 			reg-io-width = <4>;
 		};
 
+		pds_ctrl: pds-ctrl@0x2000e000 {
+			compatible = "syscon";
+			reg = <0x2000e000 0x1000>;
+			status = "okay";
+			reg-io-width = <4>;
+		};
+
 		pinctrl: pinctrl@0x200008C4 {
 			compatible = "bflb,bl808-pinctrl";
 			reg = <0x200008C4 0x1000>;
@@ -220,6 +227,14 @@
 			status = "disabled";
 		};
 
+		usb: usb@20072000 {
+			compatible = "faraday,fotg210", "bflb,bl808-usb";
+			reg = <0x20072000 0x1000>;
+			interrupts-extended = <&m0ic 21>;
+			syscon = <&sys_ctrl>;
+			pds = <&pds_ctrl>;
+			status = "disabled";
+		};
 		/*
 		ipclic: mailbox@30005000 {
 			compatible = "bflb,bl808-ipc";

@@ -5539,8 +5539,12 @@ static void fotg210_init(struct fotg210_hcd *fotg210)
 {
 	u32 value;
 
+#ifdef CONFIG_BFLB_FOTG210_PATCH
 	iowrite32(GMIR_MDEV_INT | GMIR_MOTG_INT | GMIR_INT_POLARITY,
 			&fotg210->regs->gmir);
+#else
+	iowrite32(GMIR_MDEV_INT | GMIR_MOTG_INT, &fotg210->regs->gmir);
+#endif
 
 	value = ioread32(&fotg210->regs->otgcsr);
 	value &= ~OTGCSR_A_BUS_DROP;
