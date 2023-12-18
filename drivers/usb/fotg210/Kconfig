@@ -4,8 +4,6 @@ config USB_FOTG210
 	tristate "Faraday FOTG210 USB2 Dual Role controller"
 	depends on USB || USB_GADGET
 	depends on HAS_DMA && HAS_IOMEM
-	depends on ARCH_GEMINI || COMPILE_TEST
-	default ARCH_GEMINI
 	select MFD_SYSCON
 	help
 	  Faraday FOTG210 is a dual-mode USB controller that can act
@@ -34,5 +32,14 @@ config USB_FOTG210_UDC
 
 	   Say "y" to link the driver statically, or "m" to build a
 	   dynamically linked module called "fotg210-udc".
+
+config BFLB_FOTG210_PATCH
+	bool "Bouffalo Lab patch for setting up FOTG210"
+	depends on USB=y || USB=USB_FOTG210
+	default n
+	help
+		USB platform initialization like enable clock,
+		configure PLL and PDS, etc.
+		Say Y here to enable FOTG210 in Bouffalo Lab SoC.
 
 endif

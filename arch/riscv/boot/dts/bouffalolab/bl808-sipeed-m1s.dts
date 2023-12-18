@@ -1,7 +1,4 @@
 // SPDX-License-Identifier: (GPL-2.0+ or MIT)
-/*
- * Copyright (C) 2022 Jisheng Zhang <jszhang@kernel.org>
- */
 
 /dts-v1/;
 
@@ -127,4 +124,8 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&spidev_pins>;
 	};
+};
+
+&usb {
+	status = "okay";
 };

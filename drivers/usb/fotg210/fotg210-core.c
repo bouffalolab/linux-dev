@@ -15,6 +15,7 @@
 #include <linux/regmap.h>
 #include <linux/usb.h>
 #include <linux/usb/otg.h>
+#include <linux/bitfield.h>
 
 #include "fotg210.h"
 
@@ -93,6 +94,91 @@ static int fotg210_gemini_init(struct fotg210 *fotg, struct resource *res,
 	return 0;
 }
 
+#define BFLB_CLKGATE_CFG1_REG		0x584
+#define BFLB_AHB_CLKGATE_USB_MASK	BIT(13)
+
+#define BFLB_WIFI_PLL_CFG10_REG		0x838
+#define BFLB_WIFI_PLL_MMDIV_MASK	BIT(29)
+#define BFLB_WIFI_PLL_RST_MASK		BIT(28)
+
+#define BFLB_PDS_USB_PHY_CTRL_REG	0x504
+#define BFLB_PDS_USB_PHY_PONRST_MASK	BIT(0)
+#define BFLB_PDS_USB_PHY_XTLSEL_MASK	BIT(2)
+#define BFLB_PDS_PU_USB20_PSW_MASK	BIT(6)
+
+#define BFLB_PDS_USB_CTL_REG		0x500
+#define BFLB_PDS_USB_SW_RST_MASK	BIT(0)
+#define BFLB_PDS_USB_EXT_SUSP_MASK	BIT(1)
+#define BFLB_PDS_USB_IDDIG_MASK		BIT(5)
+
+#define BFLB_USB_GLB_INT_REG		0xc4
+#define BFLB_USB_GLB_DEV_INT_MASK	BIT(0)
+#define BFLB_USB_GLB_OTG_INT_MASK	BIT(1)
+#define BFLB_USB_GLB_HOST_INT_MASK	BIT(2)
+
+static int bflb_usb_init(struct fotg210 *fotg)
+{
+#ifdef CONFIG_BFLB_FOTG210_PATCH
+	u32 tmp;
+	struct regmap *map;
+	struct device *dev = fotg->dev;
+	struct device_node *np = dev_of_node(dev);
+
+	map = syscon_regmap_lookup_by_phandle(np, "syscon");
+	if (IS_ERR(map))
+		return dev_err_probe(dev, PTR_ERR(map), "no syscon\n");
+
+	/* enable AHB clock gate for USB */
+	regmap_update_bits(map, BFLB_CLKGATE_CFG1_REG, BFLB_AHB_CLKGATE_USB_MASK,
+				FIELD_PREP(BFLB_AHB_CLKGATE_USB_MASK, 1));
+	/* set usb clock from wifi pll */
+	regmap_update_bits(map, BFLB_WIFI_PLL_CFG10_REG, BFLB_WIFI_PLL_MMDIV_MASK,
+				FIELD_PREP(BFLB_WIFI_PLL_MMDIV_MASK, 1));
+	regmap_update_bits(map, BFLB_WIFI_PLL_CFG10_REG, BFLB_WIFI_PLL_RST_MASK,
+				FIELD_PREP(BFLB_WIFI_PLL_RST_MASK, 1));
+	udelay(2);
+	regmap_update_bits(map, BFLB_WIFI_PLL_CFG10_REG, BFLB_WIFI_PLL_RST_MASK,
+				FIELD_PREP(BFLB_WIFI_PLL_RST_MASK, 0));
+	udelay(2);
+	regmap_update_bits(map, BFLB_WIFI_PLL_CFG10_REG, BFLB_WIFI_PLL_RST_MASK,
+				FIELD_PREP(BFLB_WIFI_PLL_RST_MASK, 1));
+	/* enable USB in PDS */
+	map = syscon_regmap_lookup_by_phandle(np, "pds");
+	if (IS_ERR(map))
+		return dev_err_probe(dev, PTR_ERR(map), "no pds\n");
+
+	regmap_update_bits(map, BFLB_PDS_USB_PHY_CTRL_REG, BFLB_PDS_USB_PHY_XTLSEL_MASK,
+				FIELD_PREP(BFLB_PDS_USB_PHY_XTLSEL_MASK, 0));
+	regmap_update_bits(map, BFLB_PDS_USB_PHY_CTRL_REG, BFLB_PDS_PU_USB20_PSW_MASK,
+				FIELD_PREP(BFLB_PDS_PU_USB20_PSW_MASK, 1));
+	regmap_update_bits(map, BFLB_PDS_USB_PHY_CTRL_REG, BFLB_PDS_USB_PHY_PONRST_MASK,
+				FIELD_PREP(BFLB_PDS_USB_PHY_PONRST_MASK, 1));
+	udelay(1);
+
+	regmap_update_bits(map, BFLB_PDS_USB_CTL_REG, BFLB_PDS_USB_SW_RST_MASK,
+			FIELD_PREP(BFLB_PDS_USB_SW_RST_MASK, 0));
+	udelay(1);
+	regmap_update_bits(map, BFLB_PDS_USB_CTL_REG, BFLB_PDS_USB_EXT_SUSP_MASK,
+			FIELD_PREP(BFLB_PDS_USB_EXT_SUSP_MASK, 1));
+	mdelay(3);
+	regmap_update_bits(map, BFLB_PDS_USB_CTL_REG, BFLB_PDS_USB_SW_RST_MASK,
+			FIELD_PREP(BFLB_PDS_USB_SW_RST_MASK, 1));
+	mdelay(2);
+
+	regmap_update_bits(map, BFLB_PDS_USB_CTL_REG, BFLB_PDS_USB_IDDIG_MASK,
+			FIELD_PREP(BFLB_PDS_USB_IDDIG_MASK, 0));
+
+	/* only enable usb host interrupt */
+	tmp = readl(fotg->base + BFLB_USB_GLB_INT_REG);
+	tmp &= ~BFLB_USB_GLB_HOST_INT_MASK;
+	tmp |= BFLB_USB_GLB_DEV_INT_MASK;
+	tmp |= BFLB_USB_GLB_OTG_INT_MASK;
+	writel(tmp, fotg->base + BFLB_USB_GLB_INT_REG);
+/* CONFIG_BFLB_FOTG210_PATCH */
+#endif
+	return 0;
+}
+
 /**
  * fotg210_vbus() - Called by gadget driver to enable/disable VBUS
  * @enable: true to enable VBUS, false to disable VBUS
@@ -147,6 +233,12 @@ static int fotg210_probe(struct platform_device *pdev)
 
 	if (of_device_is_compatible(dev->of_node, "cortina,gemini-usb")) {
 		ret = fotg210_gemini_init(fotg, fotg->res, mode);
+		if (ret)
+			return ret;
+	}
+
+	if (of_device_is_compatible(dev->of_node, "bflb,bl808-usb")) {
+		ret = bflb_usb_init(fotg);
 		if (ret)
 			return ret;
 	}
