@@ -6,6 +6,7 @@
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/mailbox/bflb-ipc.h>
 #include <dt-bindings/pinctrl/pinctrl-bflb.h>
+#include <dt-bindings/dma/bflb-dma.h>
 
 / {
 	compatible = "bflb,bl808";
@@ -166,6 +167,24 @@
 			};
 		};
 
+		mm_dma: dma@0x30001000 {
+			compatible = "bflb,bl808-dma";
+			reg = <0x30001000 0x1000>;
+			interrupts = <40 IRQ_TYPE_LEVEL_HIGH>,
+				   <41 IRQ_TYPE_LEVEL_HIGH>,
+				   <42 IRQ_TYPE_LEVEL_HIGH>,
+				   <43 IRQ_TYPE_LEVEL_HIGH>,
+				   <44 IRQ_TYPE_LEVEL_HIGH>,
+				   <45 IRQ_TYPE_LEVEL_HIGH>,
+				   <46 IRQ_TYPE_LEVEL_HIGH>,
+				   <47 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&xtal>;
+			#dma-cells = <1>;
+			dma-channels = <8>;
+			dma-requests = <11>;
+			status = "disabled";
+		};
+
 		seceng: seceng@0x20004000 {
 			compatible = "bflb,seceng";
 			reg = <0x20004000 0x1000>;
@@ -221,6 +240,9 @@
 			clocks = <&mm_muxpll_160m>;
 			#address-cells = <1>;
 			#size-cells = <0>;
+			dmas = <&mm_dma DMA_REQ_INFO(DMA_REQ_NONE, DMA_REQ_SPI1_TX)>,
+				<&mm_dma DMA_REQ_INFO(DMA_REQ_SPI1_RX, DMA_REQ_NONE)>;
+			dma-names = "tx", "rx";
 			syscon = <&sys_ctrl>;
 			bflb,fifo-depth = <32>;
 			bflb,max-bits-per-word = <32>;

@@ -752,6 +752,14 @@ config XILINX_ZYNQMP_DPDMA
 	  driver provides the dmaengine required by the DisplayPort subsystem
 	  display driver.
 
+config BFLB_DMA
+	tristate "Bouffalo Lab SoC DMA support"
+    depends on RISCV
+	select DMA_ENGINE
+	select DMA_VIRTUAL_CHANNELS
+	help
+	  Enable support for the Bouffalo Lab SoC DMA controller.
+
 # driver files
 source "drivers/dma/bestcomm/Kconfig"
 

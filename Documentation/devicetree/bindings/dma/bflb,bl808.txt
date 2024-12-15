@@ -1,0 +1,48 @@
+* Bouffalo Lab DMA controller
+
+Required properties:
+- compatible: Must be "bflb,bl808-dma".
+- reg: Should contain DMA registers location and length.
+- interrupts: Should contain all the interrupts required by all channels.
+- #dma-cells: see dma.txt, should be 1.
+- dma-channels: physical channels supported.
+- dma-requests: virtual channels supported, each virtual channel
+		have specific request line.
+- clocks: clock required.
+
+Example:
+
+Controller:
+		mm_dma: dma@30001000 {
+			compatible = "bflb,bl808-dma";
+			reg = <0x30001000 0x1000>;
+			#dma-cells = <1>;
+			dma-channels = <8>;
+			dma-requests = <11>;
+			interrupts = <40 IRQ_TYPE_LEVEL_HIGH>,
+				   <41 IRQ_TYPE_LEVEL_HIGH>,
+				   <42 IRQ_TYPE_LEVEL_HIGH>,
+				   <43 IRQ_TYPE_LEVEL_HIGH>,
+				   <44 IRQ_TYPE_LEVEL_HIGH>,
+				   <45 IRQ_TYPE_LEVEL_HIGH>,
+				   <46 IRQ_TYPE_LEVEL_HIGH>,
+				   <47 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&xtal>;
+			status = "okay";
+			...
+		};
+
+Client:
+
+Use specific request line.
+For example,
+	spi1: spi@30008000 {
+		compatible = "bflb,bl808-spi";
+		reg = <0x30008000 0x1000>;
+		...
+		dmas = <&mm_dma DMA_REQ_INFO(DMA_REQ_NONE, DMA_REQ_SPI1_TX)>,
+		     <&mm_dma DMA_REQ_INFO(DMA_REQ_SPI1_RX, DMA_REQ_NONE)>;
+		dma-names = "tx", "rx";
+		...
+		status = "okay";
+	};

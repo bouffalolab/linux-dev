@@ -45,13 +45,12 @@
 	};
 
 	leds {
-        compatible = "gpio-leds";
+		compatible = "gpio-leds";
 		status = "disabled";
-
-        led {
-            gpios = <&pinctrl 8 GPIO_ACTIVE_LOW>;
-        };
-    };
+		led {
+			gpios = <&pinctrl 8 GPIO_ACTIVE_LOW>;
+		};
+	};
 
 	pwm-leds {
 		compatible = "pwm-leds";
@@ -85,12 +84,16 @@
 	spidev_pins: spidev-pins {
 		bflb,pin-function = <BFLB_PINMUX_FUNC_MM_SPI>;
 		bflb,pins = <0 23 &pin_cfg_default>, // sck
-					<0 21 &pin_cfg_default>, // mosi
-					<0 22 &pin_cfg_input_enable>; // miso
+			<0 21 &pin_cfg_default>, // mosi
+			<0 22 &pin_cfg_input_enable>; // miso
 	};
 };
 
 &seceng {
+	status = "okay";
+};
+
+&mm_dma {
 	status = "okay";
 };
 

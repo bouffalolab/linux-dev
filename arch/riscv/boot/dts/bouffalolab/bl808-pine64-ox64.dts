@@ -58,8 +58,8 @@
 	spidev_pins: spidev-pins {
 		bflb,pin-function = <BFLB_PINMUX_FUNC_MM_SPI>;
 		bflb,pins = <0 23 &pin_cfg_default>, // sck
-					<0 21 &pin_cfg_default>, // mosi
-					<0 22 &pin_cfg_input_enable>; // miso
+			<0 21 &pin_cfg_default>, // mosi
+			<0 22 &pin_cfg_input_enable>; // miso
 	};
 };
 
@@ -71,6 +71,10 @@
 	status = "okay";
 	pinctrl-names = "default";
 	pinctrl-0 = <&mm_uart_pins>;
+};
+
+&mm_dma {
+	status = "okay";
 };
 
 &uart1 {
