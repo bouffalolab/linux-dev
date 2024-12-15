@@ -56,7 +56,7 @@
 /* 0x08: spi bus busy indicator register */
 #define SPI_BUS_BUSY_REG_OFFSET	(0x8)
 
-#define SPI_BUSY_BUSY	BIT(0)
+#define SPI_BUS_BUSY	BIT(0)
 
 /* 0x10: spi prd 0 register */
 #define SPI_PRD0_REG_OFFSET	(0x10)

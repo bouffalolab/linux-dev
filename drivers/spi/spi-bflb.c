@@ -9,6 +9,7 @@
 #include <linux/interrupt.h>
 #include <linux/clk-provider.h>
 #include <linux/clkdev.h>
+#include <linux/dmaengine.h>
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
 #include <linux/of.h>
@@ -19,7 +20,7 @@
 
 #define BFLB_SPI_DRIVER_NAME	"bflb-spi"
 
-/* global controll register: pad as master/slave */
+/* Global controll register: pad as master/slave */
 #define BL808_GLOBAL_PARAM_CFG0		0x510
 #define BL808_MM_SPI_PAD_ROLE_MASK	BIT(27)
 #define BL808_MM_SPI_PAD_AS_MASTER	BIT(27)
@@ -30,41 +31,49 @@
 /* TX/RX fifo size in bytes */
 #define BFLB_SPI_MAX_TXF_SIZE	32
 
+#define BFLB_XFER_DMA_TX 0x1
+#define BFLB_XFER_DMA_RX 0x2
+
 struct bflb_spi {
-	/* register base address */
+	/* Register base address */
 	void __iomem *regs;
-	/* spi parent clock */
+	/* SPI parent clock */
 	struct clk *pclk;
-	/* spi bus clock */
+	/* SPI bus clock */
 	struct clk_hw clk_hw;
-	/* current clock divider */
+	/* Current clock divider */
 	u32 bus_div;
 	u32 spi_div;
-	/* fifo depth in bytes */
+	/* FIFO depth in bytes */
 	unsigned int fifo_depth;
 	u32 max_bits_per_word;
-	/* wake-up due to trigger from ISR, not used now */
+	/* Wake-up due to trigger from ISR, not used now */
 	struct completion done;
-	/* global register map */
+	/* Global register map */
 	struct regmap *syscon_regmap;
 	struct device *dev;
-	/* current transfer info */
+	/* Current transfer info */
 	u32 tx_len;
 	u32 rx_len;
 	const void *tx_buf;
 	void *rx_buf;
 	u8 xfer_stride;
-	/* statistics */
+	/* TX/RX FIFO register address for DMA. */
+	phys_addr_t dma_txdr;
+	phys_addr_t dma_rxdr;
+	bool dma_avail;
+	atomic_t state;
+	/* Statistics */
 	u64_stats_t txf_overflow;
 	u64_stats_t txf_underflow;
 	u64_stats_t rxf_overflow;
 	u64_stats_t rxf_underflow;
-	/* debugfs entry */
+	/* Debugfs entry */
 	struct dentry *dbgfs_dir;
 };
 
 struct bflb_spi_dev_data {
-	/* config register */
+	/* Config register */
 	u32 cr_val;
 	u32 cr_mask;
 };
@@ -74,7 +83,7 @@ struct bflb_spi_dev_data {
 static struct dentry *bflb_spi_dbgfs_root;
 
 /*
- * push data into spi tx fifo
+ * Push data into spi tx fifo
  * @param: spi - the spi controller handle
  *	   max - the maximum of words to transfer, -1 means no limit,
  *		 push as much data as possible.
@@ -87,7 +96,7 @@ static u32 bflb_spi_txfifo_push(struct bflb_spi *spi, int max)
 	if (!spi->tx_len || !max)
 		return 0;
 
-	/* get available bytes of tx fifo */
+	/* Get available bytes of tx fifo */
 	n_words = readl(spi->regs + SPI_FIFO_CFG1_REG_OFFSET);
 	n_words = FIELD_GET(SPI_TXF_BYTES_MASK, n_words) / spi->xfer_stride;
 	n_words = min(n_words, spi->tx_len);
@@ -125,7 +134,7 @@ static u32 bflb_spi_txfifo_push(struct bflb_spi *spi, int max)
 	return n_words;
 }
 
-/* return number of words read out of rxfifo */
+/* Return number of words read out of RXFIFO */
 static u32 bflb_spi_rxfifo_drain(struct bflb_spi *spi)
 {
 	u32 i, tmp, avail;
@@ -136,7 +145,7 @@ static u32 bflb_spi_rxfifo_drain(struct bflb_spi *spi)
 
 	for (i = 0; i < avail && spi->rx_len > 0; i++, spi->rx_len--) {
 		if (!spi->rx_buf) {
-			/* just pop the data */
+			/* Just pop the data */
 			tmp = readl(spi->regs + SPI_RXFIFO_REG_OFFSET);
 			continue;
 		}
@@ -173,26 +182,32 @@ static void bflb_spi_init(struct bflb_spi *spi)
 {
 	u32 tmp;
 
-	/* only master mode is supported now */
+	/* Only master mode is supported now */
 	regmap_update_bits(spi->syscon_regmap, BL808_GLOBAL_PARAM_CFG0,
 		BL808_MM_SPI_PAD_ROLE_MASK, BL808_MM_SPI_PAD_AS_MASTER);
-	/* basic configurations */
+	/* Basic configurations */
 	tmp = SPI_CR_CONT_XFER | FIELD_PREP(SPI_CR_FRAME_LEN_MASK, 0);
 	writel(tmp, spi->regs + SPI_CONFIG_REG_OFFSET);
 
-	/* clear all pending interrupts */
+	/* Clear all pending interrupts */
 	tmp = SPI_INT_CLR_ALL;
-	/* enable some interrupts */
+	/* Enable some interrupts */
 	tmp |= SPI_INT_ENABLE_RXF_RDY | SPI_INT_ENABLE_FIFO_ERR;
-	/* mask all interrupts */
+	/* Mask all interrupts */
 	tmp |= SPI_INT_MASK_ALL;
 	writel(tmp, spi->regs + SPI_INT_REG_OFFSET);
-	/* clear pending fifo errors */
+	/* Clear pending fifo errors */
 	tmp = SPI_FIFO_CLR_TX | SPI_FIFO_CLR_RX;
 	writel(tmp, spi->regs + SPI_FIFO_CFG0_REG_OFFSET);
-	/* no fifo threshold */
+	/* No fifo threshold */
 	tmp = 0;
 	writel(tmp, spi->regs + SPI_FIFO_CFG1_REG_OFFSET);
+}
+
+static inline void bflb_spi_wait_idle(struct bflb_spi *bspi)
+{
+	while (readl(bspi->regs + SPI_BUS_BUSY_REG_OFFSET))
+		cpu_relax();
 }
 
 static int bflb_spi_prepare_message(struct spi_controller *ctlr,
@@ -288,13 +303,13 @@ static void bflb_spi_handle_err(struct spi_controller *ctlr,
 	u32 tmp;
 	struct bflb_spi *spi = spi_controller_get_devdata(ctlr);
 
-	/* disable controller */
+	/* Disable controller */
 	tmp = readl(spi->regs + SPI_CONFIG_REG_OFFSET);
 	tmp &= ~SPI_CR_MASTER_EN;
 	tmp &= ~SPI_CR_SLAVE_EN;
 	writel(tmp, spi->regs + SPI_CONFIG_REG_OFFSET);
 
-	/* mask all interrupts */
+	/* Mask all interrupts */
 	tmp = readl(spi->regs + SPI_INT_REG_OFFSET);
 	tmp |= SPI_INT_MASK_ALL;
 	writel(tmp, spi->regs + SPI_INT_REG_OFFSET);
@@ -308,8 +323,8 @@ static irqreturn_t bflb_spi_isr(int irq, void *dev_id)
 
 	tmp = readl(spi->regs + SPI_INT_REG_OFFSET);
 	pending = FIELD_GET(SPI_INT_STS_ALL, tmp);
-	/* this is not working */
-	if (pending & SPI_INT_STS_XFER_END)
+	/* This is not working */
+	if (unlikely(pending & SPI_INT_STS_XFER_END))
 		complete(&spi->done);
 
 	if (pending & SPI_INT_STS_FIFO_ERR) {
@@ -323,11 +338,11 @@ static irqreturn_t bflb_spi_isr(int irq, void *dev_id)
 		if (tmp & SPI_FIFO_STS_RXF_UDFL)
 			u64_stats_inc(&spi->rxf_underflow);
 
-		/* clear pending fifo error status */
+		/* Clear pending fifo error status */
 		tmp = readl(spi->regs + SPI_FIFO_CFG0_REG_OFFSET);
 		tmp |= SPI_FIFO_CLR_TX | SPI_FIFO_CLR_RX;
 		writel(tmp, spi->regs + SPI_FIFO_CFG0_REG_OFFSET);
-		/* clear pending transfer end interrupt */
+		/* Clear pending transfer end interrupt */
 		tmp = readl(spi->regs + SPI_INT_REG_OFFSET);
 		tmp |= SPI_INT_CLR_XFER_END;
 		writel(tmp, spi->regs + SPI_INT_REG_OFFSET);
@@ -337,12 +352,12 @@ static irqreturn_t bflb_spi_isr(int irq, void *dev_id)
 		u32 consumed;
 
 		/*
-		 * pop some data first and pending rx fifo ready interrupt is
+		 * Pop some data first and pending rx fifo ready interrupt is
 		 * auto-cleared after data is poped.
 		 */
 		consumed = bflb_spi_rxfifo_drain(spi);
 		if (!spi->rx_len) {
-			/* mask rx fifo ready interrupt */
+			/* Mask rx fifo ready interrupt */
 			tmp = readl(spi->regs + SPI_INT_REG_OFFSET);
 			tmp |= SPI_INT_MASK_RXF_RDY;
 			tmp |= SPI_INT_MASK_FIFO_ERR;
@@ -350,7 +365,7 @@ static irqreturn_t bflb_spi_isr(int irq, void *dev_id)
 			spi_finalize_current_transfer(ctlr);
 		} else {
 			/*
-			 * check if there is some tx work to do. Although the
+			 * Check if there is some tx work to do. Although the
 			 * driver has tried to drain the rx fifo, the spi
 			 * controller is still working concurrently, which means
 			 * there could be new data in the rx fifo and tx fifo
@@ -384,11 +399,11 @@ static void bflb_spi_flush_fifo(struct bflb_spi *spi)
 {
 	u32 i, tmp, avail;
 
-	/* clear pending fifo errors */
+	/* Clear pending fifo errors */
 	tmp = readl(spi->regs + SPI_FIFO_CFG0_REG_OFFSET);
 	tmp |= SPI_FIFO_CLR_TX | SPI_FIFO_CLR_RX;
 	writel(tmp, spi->regs + SPI_FIFO_CFG0_REG_OFFSET);
-	/* pop data in the rx fifo */
+	/* Pop data in the rx fifo */
 	avail = readl(spi->regs + SPI_FIFO_CFG1_REG_OFFSET);
 	avail = FIELD_GET(SPI_RXF_BYTES_MASK, avail);
 	for (i = 0; i < avail; i++)
@@ -413,14 +428,14 @@ static int bflb_spi_xfer_setup(struct bflb_spi *spi, struct spi_device *dev,
 		return -EINVAL;
 	}
 
-	/* set word size */
+	/* Set word size */
 	tmp = readl(spi->regs + SPI_CONFIG_REG_OFFSET);
 	tmp &= ~SPI_CR_FRAME_LEN_MASK;
 	tmp |= FIELD_PREP(SPI_CR_FRAME_LEN_MASK, spi->xfer_stride - 1);
 	writel(tmp, spi->regs + SPI_CONFIG_REG_OFFSET);
-	/* set transfer timing parameters */
+	/* Set transfer timing parameters */
 	clk_set_rate(spi->clk_hw.clk, t->speed_hz);
-	/* set up transfer state */
+	/* Set up transfer state */
 	spi->tx_len = t->len / spi->xfer_stride;
 	spi->rx_len = spi->tx_len;
 	spi->tx_buf = t->tx_buf;
@@ -432,7 +447,7 @@ static int bflb_spi_xfer_setup(struct bflb_spi *spi, struct spi_device *dev,
 }
 
 /*
- * Note: the polling transfer has not undergone sufficient testing, thus
+ * Note: The polling transfer has not undergone sufficient testing, thus
  * it might not be that stable.
  */
 static int __maybe_unused bflb_spi_transfer_one_poll(struct spi_controller *ctlr,
@@ -450,39 +465,219 @@ static int __maybe_unused bflb_spi_transfer_one_poll(struct spi_controller *ctlr
 	bflb_spi_prepare_wait(spi);
 	bflb_spi_txfifo_push(spi, -1);
 	while (spi->rx_len) {
-		/* wait for reception to complete */
+		/* Wait for reception to complete */
 		bflb_spi_wait(spi, SPI_INT_STS_RXF_RDY, poll);
-		/* read data out of the rx fifo */
+		/* Read data out of the rx fifo */
 		consumed = bflb_spi_rxfifo_drain(spi);
 		bflb_spi_prepare_wait(spi);
-		/* enqueue words for transmission */
+		/* Enqueue words for transmission */
 		bflb_spi_txfifo_push(spi, consumed);
 	}
 
 	return 0;
 }
 
-static int bflb_spi_transfer_one_irq(struct spi_controller *ctlr,
+static int bflb_spi_transfer_one_irq(struct bflb_spi *bspi,
 		struct spi_device *device, struct spi_transfer *t)
 {
 	int err;
 	u32 tmp;
-	struct bflb_spi *spi = spi_controller_get_devdata(ctlr);
 
-	err = bflb_spi_xfer_setup(spi, device, t);
+	err = bflb_spi_xfer_setup(bspi, device, t);
 	if (err < 0)
 		return err;
 
-	tmp = bflb_spi_txfifo_push(spi, -1);
+	tmp = bflb_spi_txfifo_push(bspi, -1);
 	/*
-	 * unmask rx fifo ready interrupt for transaction, and fifo error
+	 * Unmask rx fifo ready interrupt for transaction, and fifo error
 	 * interrupt for debugging.
 	 */
-	tmp = readl(spi->regs + SPI_INT_REG_OFFSET);
+	tmp = readl(bspi->regs + SPI_INT_REG_OFFSET);
 	tmp &= ~SPI_INT_MASK_RXF_RDY;
 	tmp &= ~SPI_INT_MASK_FIFO_ERR;
-	writel(tmp, spi->regs + SPI_INT_REG_OFFSET);
+	writel(tmp, bspi->regs + SPI_INT_REG_OFFSET);
+	/* 1 means that the transfer is in process. */
 	return 1;
+}
+
+static void bflb_spi_dma_txcb(void *data)
+{
+	int state;
+	struct spi_controller *ctlr = data;
+	struct bflb_spi *bspi = spi_controller_get_devdata(ctlr);
+
+	state = atomic_fetch_andnot(BFLB_XFER_DMA_TX, &bspi->state);
+	/* The transaction is still in progress. */
+	if (state & BFLB_XFER_DMA_RX)
+		return;
+
+	/*
+	 * SPI TX DMA completion interrupt is triggered after the data is
+	 * moved from memory to SPI TX FIFO, but that does not mean the
+	 * SPI transaction is done.
+	 */
+	bflb_spi_wait_idle(bspi);
+	spi_finalize_current_transfer(ctlr);
+}
+
+static void bflb_spi_dma_rxcb(void *data)
+{
+	int state;
+	struct spi_controller *ctlr = data;
+	struct bflb_spi *bspi = spi_controller_get_devdata(ctlr);
+
+	state = atomic_fetch_andnot(BFLB_XFER_DMA_RX, &bspi->state);
+	/* Usually SPI TX DMA completion interrupt is a step earlier. */
+	if (unlikely(state & BFLB_XFER_DMA_TX))
+		return;
+
+	spi_finalize_current_transfer(ctlr);
+}
+
+static int bflb_spi_transfer_one_dma(struct bflb_spi *bspi,
+	struct spi_controller *ctlr, struct spi_device *device,
+	struct spi_transfer *t)
+{
+	int err;
+	u32 tmp;
+	u32 addr_width;
+	struct dma_slave_config cfg;
+	struct dma_async_tx_descriptor *txd = NULL, *rxd = NULL;
+
+	err = bflb_spi_xfer_setup(bspi, device, t);
+	if (err < 0)
+		return err;
+
+	addr_width = device->bits_per_word >> 3;
+	/* bits_per_word of 24 needs a word. */
+	if (addr_width == 3)
+		addr_width = 4;
+
+	atomic_set(&bspi->state, 0);
+	if (t->tx_buf) {
+		memset(&cfg, 0, sizeof(cfg));
+		cfg.direction = DMA_MEM_TO_DEV;
+		cfg.src_addr_width = addr_width;
+		cfg.src_maxburst = 1;
+		cfg.dst_addr = bspi->dma_txdr;
+		cfg.dst_addr_width = addr_width;
+		cfg.dst_maxburst = 1;
+
+		err = dmaengine_slave_config(ctlr->dma_tx, &cfg);
+		if (err) {
+			dev_err(bspi->dev,
+				"Failed to config dma tx, %d\n", err);
+			return err;
+		}
+
+		txd = dmaengine_prep_slave_sg(ctlr->dma_tx, t->tx_sg.sgl,
+			t->tx_sg.nents, DMA_MEM_TO_DEV, DMA_PREP_INTERRUPT);
+		if (!txd) {
+			dev_err(bspi->dev,
+				"Failed to prepare dma tx, %d\n", err);
+			return -EINVAL;
+		}
+
+		txd->callback = bflb_spi_dma_txcb;
+		txd->callback_param = ctlr;
+	}
+
+	if (t->rx_buf) {
+		memset(&cfg, 0, sizeof(cfg));
+		cfg.direction = DMA_DEV_TO_MEM;
+		cfg.src_addr = bspi->dma_rxdr;
+		cfg.src_addr_width = addr_width;
+		cfg.src_maxburst = 1;
+		cfg.dst_addr_width = addr_width;
+		cfg.dst_maxburst = 1;
+
+		err = dmaengine_slave_config(ctlr->dma_rx, &cfg);
+		if (err) {
+			dmaengine_terminate_sync(ctlr->dma_tx);
+			dev_err(bspi->dev,
+				"Failed to config dma rx, %d\n", err);
+			return -EINVAL;
+		}
+
+		rxd = dmaengine_prep_slave_sg(ctlr->dma_rx, t->rx_sg.sgl,
+			t->rx_sg.nents, DMA_DEV_TO_MEM, DMA_PREP_INTERRUPT);
+		if (!rxd) {
+			dmaengine_terminate_sync(ctlr->dma_tx);
+			dev_err(bspi->dev,
+				"Failed to prepare dma rx, %d\n", err);
+			return -EINVAL;
+		}
+
+		rxd->callback = bflb_spi_dma_rxcb;
+		rxd->callback_param = ctlr;
+	}
+
+	if (rxd) {
+		ctlr->dma_rx->cookie = dmaengine_submit(rxd);
+		atomic_or(BFLB_XFER_DMA_RX, &bspi->state);
+		dma_async_issue_pending(ctlr->dma_rx);
+	}
+
+	if (txd) {
+		ctlr->dma_tx->cookie = dmaengine_submit(txd);
+		atomic_or(BFLB_XFER_DMA_TX, &bspi->state);
+		dma_async_issue_pending(ctlr->dma_tx);
+	}
+
+	/*
+	 * Mask RX FIFO ready interrupt because we only need DMA interrupt
+	 * now.
+	 * Unmask FIFO error interrupt for debugging.
+	 */
+	tmp = readl(bspi->regs + SPI_INT_REG_OFFSET);
+	tmp |= SPI_INT_MASK_RXF_RDY;
+	tmp &= ~SPI_INT_MASK_FIFO_ERR;
+	writel(tmp, bspi->regs + SPI_INT_REG_OFFSET);
+
+	/* Enable DMA requests. */
+	tmp = readl(bspi->regs + SPI_FIFO_CFG0_REG_OFFSET);
+	tmp |= SPI_FIFO_DMA_TX_EN;
+	tmp |= SPI_FIFO_DMA_RX_EN;
+	writel(tmp, bspi->regs + SPI_FIFO_CFG0_REG_OFFSET);
+	/* 1 means that the transfer is in process. */
+	return 1;
+}
+
+static bool bflb_spi_can_dma(struct spi_controller *master,
+		struct spi_device *spi, struct spi_transfer *xfer)
+{
+	struct bflb_spi *bspi = spi_controller_get_devdata(master);
+
+	/*
+	 * It is a waste of resource to setup DMA and wait for the interrupt
+	 * if the transfer is too short.
+	 */
+	return bspi->dma_avail ? xfer->len > bspi->fifo_depth : false;
+}
+
+static int bflb_spi_transfer_one(struct spi_controller *ctlr,
+		struct spi_device *device, struct spi_transfer *t)
+{
+	bool use_dma = false;
+	struct bflb_spi *bspi = spi_controller_get_devdata(ctlr);
+
+	if (!t->len) {
+		dev_warn(bspi->dev, "No data for transfer\n");
+		return 0;
+	}
+
+	if (!t->tx_buf && !t->rx_buf) {
+		dev_err(bspi->dev, "No buffers for transfer\n");
+		return -EINVAL;
+	}
+
+	if (bspi->dma_avail)
+		use_dma = ctlr->can_dma(ctlr, device, t);
+
+	if (use_dma)
+		return bflb_spi_transfer_one_dma(bspi, ctlr, device, t);
+
+	return bflb_spi_transfer_one_irq(bspi, device, t);
 }
 
 static size_t __maybe_unused bflb_spi_get_max_xfer_size(struct spi_device *spi_dev)
@@ -545,7 +740,7 @@ static void bflb_spi_clk_calc_div(unsigned long parent_rate, unsigned long rate,
 	if (rate >= parent_rate / (2 * 256)) {
 		*bus_div = 1;
 	} else {
-		/* the maximum of bus divider factor */
+		/* The maximum of bus divider factor */
 		*bus_div = 32;
 	}
 
@@ -559,7 +754,7 @@ static int bflb_spi_clk_set_rate(struct clk_hw *hw, unsigned long rate,
 	u32 cr, tmp, bus_div, spi_div;
 	struct bflb_spi *spi = clk_hw_to_bflb_spi(hw);
 
-	/* disable controller in the first place */
+	/* Disable controller in the first place */
 	cr = readl(spi->regs + SPI_CONFIG_REG_OFFSET);
 	if (cr & SPI_CR_MASTER_EN) {
 		need_resume = 1;
@@ -592,7 +787,7 @@ static long bflb_spi_clk_round_rate(struct clk_hw *hw, unsigned long rate,
 {
 	struct bflb_spi *spi = clk_hw_to_bflb_spi(hw);
 
-	/* remember the clock dividers to speed up clock setting */
+	/* Remember the clock dividers to speed up clock setting */
 	bflb_spi_clk_calc_div(*parent_rate, rate, &spi->bus_div, &spi->spi_div);
 	return *parent_rate / (spi->bus_div * 2 * spi->spi_div);
 }
@@ -626,7 +821,10 @@ static int bflb_spi_probe(struct platform_device *pdev)
 {
 	int ret, irq;
 	struct bflb_spi *spi;
+	struct resource *mem;
 	struct device_node *np;
+	bool dma_tx_ok = false;
+	bool dma_rx_ok = false;
 	struct spi_controller *ctlr;
 
 	ctlr = devm_spi_alloc_master(&pdev->dev, sizeof(struct bflb_spi));
@@ -647,13 +845,13 @@ static int bflb_spi_probe(struct platform_device *pdev)
 					"syscon node to regmap failed\n");
 	}
 
-	spi->regs = devm_platform_ioremap_resource(pdev, 0);
+	spi->regs = devm_platform_get_and_ioremap_resource(pdev, 0, &mem);
 	if (IS_ERR(spi->regs)) {
 		ret = PTR_ERR(spi->regs);
 		return dev_err_probe(spi->dev, ret, "failed to ioremap\n");
 	}
 
-	/* spin up the controller clock before manipulating registers */
+	/* Spin up the controller clock before manipulating registers */
 	spi->pclk = devm_clk_get_prepared(&pdev->dev, NULL);
 	if (IS_ERR(spi->pclk)) {
 		ret = PTR_ERR(spi->pclk);
@@ -677,7 +875,44 @@ static int bflb_spi_probe(struct platform_device *pdev)
 		return dev_err_probe(spi->dev, ret, "unable to request irq\n");
 	}
 
-	/* TODO support DMA */
+	ctlr->dma_tx = dma_request_chan(spi->dev, "tx");
+	if (IS_ERR(ctlr->dma_tx)) {
+		if (PTR_ERR(ctlr->dma_tx) == -EPROBE_DEFER) {
+			clk_disable(spi->pclk);
+			return dev_err_probe(spi->dev, -EPROBE_DEFER,
+					"Failed to get dma tx channel\n");
+		}
+
+		dev_warn(spi->dev, "Unable to get dma tx channel, %ld\n",
+				PTR_ERR(ctlr->dma_tx));
+	} else {
+		spi->dma_txdr = mem->start + SPI_TXFIFO_REG_OFFSET;
+		dma_tx_ok = true;
+	}
+
+	ctlr->dma_rx = dma_request_chan(spi->dev, "rx");
+	if (IS_ERR(ctlr->dma_rx)) {
+		if (PTR_ERR(ctlr->dma_rx) == -EPROBE_DEFER) {
+			clk_disable(spi->pclk);
+			return dev_err_probe(spi->dev, PTR_ERR(ctlr->dma_rx),
+					"Failed to get dma rx channel");
+		} else {
+			dev_warn(spi->dev, "Unable to get dma rx channel, %ld\n",
+				PTR_ERR(ctlr->dma_tx));
+		}
+	} else {
+		spi->dma_rxdr = mem->start + SPI_RXFIFO_REG_OFFSET;
+		dma_rx_ok = true;
+	}
+
+	if (dma_tx_ok && dma_rx_ok) {
+		spi->dma_avail = true;
+		ctlr->can_dma = bflb_spi_can_dma;
+		dev_info(spi->dev, "DMA is available");
+	} else {
+		spi->dma_avail = false;
+	}
+
 	spi->fifo_depth = BFLB_SPI_MAX_TXF_SIZE;
 	spi->max_bits_per_word = 32;
 	of_property_read_u32(np, "bflb,fifo-depth", &spi->fifo_depth);
@@ -700,7 +935,7 @@ static int bflb_spi_probe(struct platform_device *pdev)
 	ctlr->prepare_message = bflb_spi_prepare_message;
 	ctlr->set_cs = bflb_spi_set_cs;
 	ctlr->handle_err = bflb_spi_handle_err;
-	ctlr->transfer_one = bflb_spi_transfer_one_irq;
+	ctlr->transfer_one = bflb_spi_transfer_one;
 	ctlr->use_gpio_descriptors = true;
 	pdev->dev.dma_mask = NULL;
 	ctlr->dev.of_node = np;
@@ -730,10 +965,13 @@ static void bflb_spi_remove(struct platform_device *pdev)
 	struct spi_controller *ctlr = platform_get_drvdata(pdev);
 	struct bflb_spi *spi = spi_controller_get_devdata(ctlr);
 
-	/* disable all the interrupts */
+	/* Disable all the interrupts */
 	tmp = SPI_INT_CLR_ALL | SPI_INT_MASK_ALL;
 	writel(tmp, spi->regs + SPI_INT_REG_OFFSET);
+	/* Stop the clock. */
 	clk_disable(spi->pclk);
+	/* Disable the hardware. */
+	bflb_spi_unprepare_controller(ctlr);
 }
 
 static const struct of_device_id bflb_spi_of_match[] = {
@@ -772,6 +1010,6 @@ static void __exit bflb_spi_driver_exit(void)
 module_init(bflb_spi_driver_init);
 module_exit(bflb_spi_driver_exit);
 
-MODULE_AUTHOR("Bouffalo Lab");
+MODULE_AUTHOR("qhli@bouffalolab.com");
 MODULE_DESCRIPTION("Bouffalo Lab SPI driver");
 MODULE_LICENSE("GPL");
